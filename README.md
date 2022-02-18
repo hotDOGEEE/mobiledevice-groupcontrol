@@ -9,15 +9,11 @@
 
 tidevice具体方法介绍：
 
-device_date（body:{}）, 获取设备时间
-
-app_install(body:{"filepath_or_url":str}),  安装apk or ipa
-
-app_uninstall(body:{"bundle_id":"com.iggcd.wda.xctrunner"}),卸载
-
-app_list(body:{}), 应用列表
-
-app_launch(body:{"bundle_id"}), 启动应用
+- device_date（body:{}）, 获取设备时间
+- app_install(body:{"filepath_or_url":str}),  安装apk or ipa
+- app_uninstall(body:{"bundle_id":"com.iggcd.wda.xctrunner"}),卸载
+- app_list(body:{}), 应用列表
+- app_launch(body:{"bundle_id"}), 启动应用
 
 群控过程中，通过界面来代替对相关接口的操作往往是不现实的。安装时长不以你操作的那个为准，安装完后应用图标出现在对应设备上的位置不一定统一，但是通过统一命令启动可以避免这些麻烦事。
 
@@ -25,13 +21,8 @@ app_launch(body:{"bundle_id"}), 启动应用
 
 simple_event具体方法介绍:
 
-device_info: 设备基本信息，具体格式去看引用项目本身源码
-
-home:  就是home键
-
-lock: 锁屏
-
-unlock: 解锁
-
-screenshot: 截屏，截屏的文件会保存在对应运行服务器项目下的resource/ios/screenshot下，文件名格式为udid_timestamp.png
-
+- device_info: 设备基本信息，具体格式去看引用项目本身源码
+- home:  就是home键
+- lock: 锁屏
+- unlock: 解锁
+- screenshot: 截屏，截屏的文件会保存在对应运行服务器项目下的resource/ios/screenshot下，文件名格式为udid_timestamp.png
