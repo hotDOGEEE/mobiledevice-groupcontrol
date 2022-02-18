@@ -1,6 +1,8 @@
 # ios-colonycontrol
 
 也没啥特别的，利用wda，在atx-ios-provider的基础上，去连接wdaurl，再套用fastapi为后端，进行群控远程管理的demo
+总体架构
+![](https://s3.bmp.ovh/imgs/2022/02/5a98049be291c4b6.png)
 
 接口文档 (目前所有请求均为post)
 ![](https://s3.bmp.ovh/imgs/2022/02/56ec6c216bf82c7b.png)
