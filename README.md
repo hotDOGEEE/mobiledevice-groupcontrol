@@ -26,3 +26,6 @@ simple_event具体方法介绍:
 - lock: 锁屏
 - unlock: 解锁
 - screenshot: 截屏，截屏的文件会保存在对应运行服务器项目下的resource/ios/screenshot下，文件名格式为udid_timestamp.png
+
+
+tidevice部分就是通过命令行自己简单的复写了一遍直接传参的方法。方便接口调用而已
