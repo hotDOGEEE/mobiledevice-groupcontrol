@@ -1,10 +1,13 @@
 import wda
 from fastapi import FastAPI
+from types import FunctionType
 from typing import Optional, List
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from concurrent.futures import ThreadPoolExecutor as TPE
 from tidevice import __main__ as mi
+from tidevice._perf import RunningProcess, WaitGroup, iter_cpu_memory, iter_fps, iter_gpu, set_interval, iter_screenshot, iter_network_flow, gen_stimestamp
+from tidevice import Device, DataType
 import time
 import shutil
 import os
@@ -39,6 +42,8 @@ form_size = {"iphone 6": [375, 667],
              "iphone 13 pro max": [428, 926]}
 plat = "ios"
 log_save_state = False
+perf_state = False
+perfs = [DataType.CPU, DataType.MEMORY, DataType.NETWORK, DataType.FPS, DataType.PAGE, DataType.SCREENSHOT, DataType.GPU]
 
 
 class IOS_Device_Obj:
@@ -68,8 +73,15 @@ def clear_file():
         os.mkdir(f"resource/{plat}/{i}/")
 
 
+"""
+目前没有进行前端方案对接，采用本地记录的方式进行过程保留
+如果要实现实时通信会将 syslog和perf两个方法改用websocket进行传输
+"""
+
+
 def syslog_save():
-    def _ios(udid, state):
+
+    def _ios(udid: str, state: FunctionType):
         sock = mi.cmd_syslog_sock_orient(udid)
         with open(f"resource/{plat}/logs/{udid}.log") as f:
             try:
@@ -85,9 +97,59 @@ def syslog_save():
                 os.dup2(devnull, sys.stdout.fileno())
     global log_save_state
     if plat == "ios":
-        udid_list = [u.udid for u in using_device]
-        params = [[u.udid, lambda:log_save_state] for u in udid_list]
+        params = [[u.udid, lambda: log_save_state] for u in using_device]
         TPE(max_workers=len(using_device)).map(lambda args: _ios(*args), params)
+
+
+def perf(bundle_id: str):
+
+    def _perf_callback(_type: DataType, value: dict):
+        print("R:", _type.value, value)
+
+    def _ios_perf_main(udid: str, bundle_id: str, state: FunctionType):
+        d = Device(udid=udid)
+        rp = RunningProcess(d, bundle_id)
+        iters = []
+        wgs = []
+        if DataType.CPU in perfs or DataType.MEMORY in perfs:
+            iters.append(iter_cpu_memory(d, rp))
+        if DataType.FPS in perfs:
+            iters.append(iter_fps(d))
+        if DataType.GPU in perfs:
+            iters.append(iter_gpu(d))
+        if DataType.SCREENSHOT in perfs:
+            iters.append(set_interval(iter_screenshot(d), 1.0))
+        if DataType.NETWORK in perfs:
+            iters.append(iter_network_flow(d, rp))
+        """
+        一段尝试失败的代码
+            for n in DataType:
+            if n is DataType.CPU or n is DataType.MEMORY:
+                iters.append(globals()["iter_cpu_memory"](d, rp))
+            elif n in perfs:
+                iters.append(globals()[f"iter_{n.value}"])
+        """
+        for it in (iters):
+            wg = WaitGroup()
+            wg.add(1)
+            wgs.append(wg)
+
+            for _type, data in it:
+                assert isinstance(data, dict)
+                assert isinstance(_type, DataType)
+                if isinstance(data, dict) and "time" in data:
+                    stimestamp = gen_stimestamp(data.pop("time"))
+                    data.update({"timestamp": stimestamp})
+                if _type in perfs:
+                    _perf_callback(_type, data)
+                if not state():
+                    break
+        for w in wgs:
+            w.done()
+    global perf_state
+    if plat == "ios":
+        params = [[u.udid, bundle_id, lambda: perf_state] for u in using_device]
+        TPE(max_workers=len(using_device)).map(lambda args: _ios_perf_main(*args), params)
 
 
 class Pos(BaseModel):
@@ -136,11 +198,6 @@ class TIDEVICE_EVENTS:
     但是比起用别人的函数名作为自己的参数，不如自己重命令一个，后面安卓和ios可以统一
     也不必随着别人的更新改动改自己的参数内容。
     """
-
-    @staticmethod
-    def device_info(udid, params):
-        ...
-
     @staticmethod
     def device_date(udid, params):
         mi.cmd_date_udid(udid, params)
@@ -169,11 +226,11 @@ class BaseClass:
         global using_device, plat
         plat = p
         using_device.clear()
+        clear_file()
         if plat.lower() == "android":
             print("安卓的待完善")
-            clear_file()
         elif plat.lower() == "ios":
-            # syslog_save()
+            syslog_save()
             for d in devices.devices:
                 i = IOS_Device_Obj()
                 i.udid, i.wdaurl = d.udid, d.wdaurl
@@ -182,7 +239,6 @@ class BaseClass:
                 using_device.append(i)
             content = {"message": "IOS群控设备初始化成功"}
             response = JSONResponse(content=content)
-            clear_file()
             return response
 
     @staticmethod
@@ -198,6 +254,14 @@ class BaseClass:
         with TPE(max_workers=len(using_device)) as pool:
             pool.map(lambda args: getattr(TIDEVICE_EVENTS, func)(*args), params)
         return {"message": "Tidevice事件运行完毕"}
+
+    @staticmethod
+    @app.post("/perf/")
+    def perf(bundle_id: str, state: bool):
+        global perf_state
+        perf_state = state
+        if state:
+            perf(bundle_id)
 
 
 class WDA_Operation_Batch:
