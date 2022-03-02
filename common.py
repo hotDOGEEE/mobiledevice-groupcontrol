@@ -84,7 +84,7 @@ class ScrcpyLauncher:
 
         self.base_device = [d for d in devices if d.udid == base_device][0]
         self.devices = devices
-        self.wsapp_list = [websocket.WebSocketApp(f"ws://10.23.27.196:8000/?action=proxy-adb&remote=tcp%3A8886&udid={d}",
+        self.wsapp_list = [websocket.WebSocketApp(f"ws://localhost:8000/?action=proxy-adb&remote=tcp%3A8886&udid={d}",
                                    on_open=_on_open,) for d in [d.udid for d in self.devices]]
         [threading.Thread(target=w.run_forever).start() for w in self.wsapp_list]
         # 两秒给设备做一个缓冲
