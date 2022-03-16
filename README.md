@@ -29,3 +29,19 @@ simple_event具体方法介绍:
 
 
 tidevice部分就是通过命令行自己简单的复写了一遍直接传参的方法。方便接口调用而已
+
+## 环境
+
+python3.7+
+
+pip install -r requirements.txt
+
+需要手动安装的部分
+
+pip install uvicorn[standard]
+
+pip install -U "tidevice[openssl]"
+
+
+
+
