@@ -84,31 +84,49 @@ class ScrcpyLauncher:
 
         self.base_device = [d for d in devices if d.udid == base_device][0]
         self.devices = devices
-        self.wsapp_list = [websocket.WebSocketApp(f"ws://localhost:8000/?action=proxy-adb&remote=tcp%3A8886&udid={d}",
+        self.wsapp_list = [websocket.WebSocketApp(f"ws://10.23.27.196:8000/?action=proxy-adb&remote=tcp%3A8886&udid={d}",
                                    on_open=_on_open,) for d in [d.udid for d in self.devices]]
         [threading.Thread(target=w.run_forever).start() for w in self.wsapp_list]
         # 两秒给设备做一个缓冲
 
     def broadcast(self, message: bytes):
-        # 叫他broad是因为他是一种广播的形式，但不是广播的通信。借用一下名字，通过join来确保所有设备的并发过程都已完成
-        # 目前使用的是统一的message，但message中一定是对特定设备进行操作的，需要在初始化的时候指定设备型号作为基础设备，再进行算法转换
-        # 嗯 至于怎么转换，就是另一个功能了
-        # 先把坐标摘出来，读base设备是哪一个，读对应的touch-player size 转换为百分数，×上其他设备的touch-player size
         x_point = struct.unpack(">H", message[12:14])[0]
         y_point = struct.unpack(">H", message[16:18])[0]
         index = android_screen_size[self.base_device.model][k1]
         x_percent, y_percent = x_point / index[0], y_point / index[1]
 
         def _send_t():
+            """
+            迭代器纯粹是装逼的，能用for的，结果重写了一遍发现没有任何区别（或许用迭代器控制更安心不怕顺序乱掉吧）
+            这里利用百分数乘上他本身的坐标进行统一参数转换。
+
+            :return:
+            """
             for i in range(len(self.devices)):
                 index = android_screen_size[self.devices[i].model][k1]
                 x_point, y_point = x_percent * index[0], y_percent * index[1]
                 x, y = struct.pack(">H", x_point[0]), struct.pack(">H", y_point[1]),
                 m = message[:12] + x + message[14:16] + y + message[18:]
                 yield threading.Thread(target=self.wsapp_list[i].sock.send_binary, args=(m,))
+
         t_broad = [next(_send_t()) for _ in range(len(self.devices))]
         [t.start() for t in t_broad]
         [t.join() for t in t_broad]
 
     def teardown(self):
         [w.close() for w in self.wsapp_list]
+
+
+if __name__ == '__main__':
+    from pydantic import BaseModel
+
+    class Device_Image(BaseModel):
+        udid: str
+        wdaurl: str = None
+        model: str = None
+
+    d1, d2 = Device_Image(), Device_Image()
+    d1.udid, d2.udid = "0A231FDD4002CM", "678bc02"
+    d1.model, d2.model = "Pixel 5" ,"vivo X20"
+    devices = [d1, d2]
+
