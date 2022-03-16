@@ -208,7 +208,7 @@ class WDA_Operation_Batch:
 
 class BaseClass:
     @staticmethod
-    @app.post("/init/")
+    @app.post("/plat_init/")
     def initialize(p: str, devices: Item):
         global using_device, plat
         plat = p
@@ -266,10 +266,13 @@ class BaseClass:
 
     @staticmethod
     @app.websocket("/scrcpy")
-    async def scrcpy(websocket: WebSocket, device: str):
+    async def scrcpy(websocket: WebSocket):
         # 会在initialize中输入平台android的时候对所有ws进行初始化
         await websocket.accept()
-        s_launch = ScrcpyLauncher(device, using_device)
+        base_serial = await websocket.receive_bytes()
+        # 第一条消息必须是基准设备的设备号
+        base_serial = base_serial.decode()
+        s_launch = ScrcpyLauncher(base_serial, using_device)
         try:
             while True:
                 b_data = await websocket.receive_bytes()
