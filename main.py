@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from types import FunctionType
 from structbody import *
 from common import *
@@ -214,7 +214,7 @@ class BaseClass:
         plat = p
         using_device.clear()
         clear_file()
-        syslog_save()
+
         if plat.lower() == "android":
             for d in devices.devices:
                 a = Android_Device_Obj()
@@ -222,7 +222,7 @@ class BaseClass:
                 a.model = Android_Event.adb_event(a.udid, "shell getprop ro.product.model")[0].decode()
                 Android_Event.adb_event(a.udid, "keyevent 3")
                 using_device.append(a)
-            return using_device
+            content = {"message": "android群控设备初始化成功"}
         elif plat.lower() == "ios":
             for d in devices.devices:
                 i = IOS_Device_Obj()
@@ -231,8 +231,11 @@ class BaseClass:
                 i.wda_obj.home()
                 using_device.append(i)
             content = {"message": "IOS群控设备初始化成功"}
-            response = JSONResponse(content=content)
-            return response
+        else:
+            raise HTTPException(status_code=403, detail="plat not exist")
+        syslog_save()
+        response = JSONResponse(content=content)
+        return response
 
     @staticmethod
     @app.post("/adb_event")
@@ -250,11 +253,11 @@ class BaseClass:
 
     @staticmethod
     @app.post("/tidevice/")
-    def tidevice(func: str, param: T_Obj):
+    def tidevice(fc: str, param: T_Obj):
         params = [[u.udid, param] for u in using_device]
         with TPE(max_workers=len(using_device)) as pool:
-            pool.map(lambda args: getattr(TIDEVICE_EVENTS, func)(*args), params)
-        return {"message": "Tidevice事件运行完毕"}
+            rst = pool.map(lambda args: getattr(TIDEVICE_EVENTS, fc)(*args), params)
+        return {"message": rst}
 
     @staticmethod
     @app.post("/perf/")
