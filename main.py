@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile
 from types import FunctionType
 from structbody import *
 from common import *
@@ -10,15 +10,18 @@ from tidevice import Device, DataType
 import time
 import shutil
 import os
+import pathlib
 import sys
 import uvicorn
 import subprocess
-
 
 app = FastAPI()
 using_device = list()
 resource_type = ["logs", "pags", "screenshot"]
 
+uploads = "uploads"
+uploads_dir = pathlib.Path(os.getcwd(), uploads)
+android_pag_path = "/data/local/tmp/apks"
 plat = "ios"
 log_save_state = False
 perf_state = False
@@ -156,7 +159,7 @@ class TIDEVICE_EVENTS:
 
     @classmethod
     def app_list(cls, udid, params):
-        mi.cmd_applist_udid(udid, params)
+        return mi.cmd_applist_udid(udid, params)
 
     @classmethod
     def app_launch(cls, udid, params):
@@ -207,20 +210,20 @@ class WDA_Operation_Batch:
 
 
 class BaseClass:
+    base_root = "/api"
     @staticmethod
-    @app.post("/plat_init/")
+    @app.post(f"{base_root}/plat_init/")
     def initialize(p: str, devices: Item):
         global using_device, plat
         plat = p
         using_device.clear()
         clear_file()
-
         if plat.lower() == "android":
             for d in devices.devices:
                 a = Android_Device_Obj()
                 a.udid = d.udid
                 a.model = Android_Event.adb_event(a.udid, "shell getprop ro.product.model")[0].decode()
-                Android_Event.adb_event(a.udid, "keyevent 3")
+                Android_Event.adb_event(a.udid, "shell input keyevent 3")
                 using_device.append(a)
             content = {"message": "android群控设备初始化成功"}
         elif plat.lower() == "ios":
@@ -238,7 +241,7 @@ class BaseClass:
         return response
 
     @staticmethod
-    @app.post("/adb_event")
+    @app.post(f"{base_root}/adb_event")
     def adb_event(shell: str):
         with TPE(max_workers=len(using_device)) as pool:
             params = [[u.udid, shell] for u in using_device]
@@ -246,21 +249,52 @@ class BaseClass:
         return rst
 
     @staticmethod
-    @app.post("/log_state/")
+    @app.post(f"{base_root}/log_state/")
     def log_state(state: bool):
         global log_save_state
         log_save_state = state
 
     @staticmethod
-    @app.post("/tidevice/")
+    @app.post(f"{base_root}/apk_install")
+    async def apk_install(file: UploadFile = File(...)):
+        def _install(serial):
+            Android_Event.adb_event(serial, f"shell rm -rf {android_pag_path}")
+            Android_Event.adb_event(serial, f"shell mkdir {android_pag_path}")
+            Android_Event.adb_event(serial, f"push {file.filename} {android_pag_path}")
+            Android_Event.adb_event(serial, f"shell pm install {android_pag_path}/{file.filename}")
+            # 以下是安装结果检查部分，不用原本的succes，用有没有包更严谨一些，不用那个结果。
+
+        def _install_check(serial):
+            r = Android_Event.adb_event(serial, "shell pm list packages")
+            rst = [i for i in r if pagname in i]
+            if any(rst):
+                return True
+            return False, serial
+        res = await file.read()
+        with open(file.filename, "wb") as f:
+            f.write(res)
+        p = subprocess.Popen(f"aapt dump badging {file.filename}", shell=True,
+                             stdout=subprocess.PIPE)
+        rst = p.stdout.readlines()[0]
+        pagname = rst.split(b"'")[1]
+        with TPE(max_workers=len(using_device)) as pool:
+            params = [u.udid for u in using_device]
+            pool.map(_install, params)
+            r = pool.map(_install_check, params)
+        content = {"pagname": pagname, "install_rst": r}
+        response = JSONResponse(content=content)
+        return response
+
+    @staticmethod
+    @app.post(f"{base_root}/tidevice/")
     def tidevice(fc: str, param: T_Obj):
         params = [[u.udid, param] for u in using_device]
         with TPE(max_workers=len(using_device)) as pool:
             rst = pool.map(lambda args: getattr(TIDEVICE_EVENTS, fc)(*args), params)
-        return {"message": rst}
+        return {"message": [r for r in rst]}
 
     @staticmethod
-    @app.post("/perf/")
+    @app.post(f"{base_root}/perf/")
     def perf(bundle_id: str, state: bool):
         global perf_state
         perf_state = state
@@ -268,7 +302,7 @@ class BaseClass:
             perf(bundle_id)
 
     @staticmethod
-    @app.websocket("/scrcpy")
+    @app.websocket(f"{base_root}/scrcpy")
     async def scrcpy(websocket: WebSocket):
         # 会在initialize中输入平台android的时候对所有ws进行初始化
         await websocket.accept()
@@ -284,7 +318,7 @@ class BaseClass:
             s_launch.teardown()
 
     @staticmethod
-    @app.post("/functest/")
+    @app.post(f"{base_root}/functest/")
     def functest():
         p = subprocess.Popen("adb devices", shell=True, stdout=subprocess.PIPE)
         rst = p.stdout.readlines()
